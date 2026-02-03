@@ -232,11 +232,6 @@ contract AgentMarket is
         // 3. transfer erc20 token or 0G
         if (offer.offerPrice > 0) {
             _handlePayment(offer.offerPrice, order.currency, buyer, seller, order.tokenId);
-        } else {
-            // For free orders (offerPrice == 0), refund any ETH sent by mistake
-            if (msg.value > 0) {
-                _refundExcess(0);
-            }
         }
 
         // 4. mark order and offer as used
@@ -469,7 +464,12 @@ contract AgentMarket is
 
     event PaidMinted(uint256 indexed tokenId, address indexed from, address indexed to, uint256 mintFee);
 
-    function paidMint(IntelligentData[] calldata iDatas, address to, bool isDiscount) external onlyRole(MINTER_ROLE) {
+    function paidMint(
+        IntelligentData[] calldata iDatas,
+        address to,
+        bool isDiscount,
+        bytes[] memory sealedKeys
+    ) external onlyRole(MINTER_ROLE) {
         AgentMarketStorage storage $ = _getMarketStorage();
         uint256 requiredFee = isDiscount ? $.discountMintFee : $.mintFee;
         require($.balances[to] >= requiredFee, "Insufficient balance for mint fee");
@@ -477,8 +477,34 @@ contract AgentMarket is
         require(!paused(), "Contract is paused");
         $.balances[to] -= requiredFee;
         $.feeBalances[address(0)] += requiredFee;
-        uint256 tokenId = AgentNFT($.agentNFT).mintWithRole(iDatas, to);
+        uint256 tokenId = AgentNFT($.agentNFT).mintWithRole(iDatas, to, sealedKeys);
         emit PaidMinted(tokenId, msg.sender, to, requiredFee);
+    }
+
+    function batchPaidMint(
+        IntelligentData[][] calldata iDatasArray,
+        address[] calldata tos,
+        bool[] calldata isDiscounts,
+        bytes[][] memory sealedKeysArray
+    ) external onlyRole(MINTER_ROLE) {
+        require(iDatasArray.length == tos.length, "Length mismatch: iDatas and tos");
+        require(iDatasArray.length == isDiscounts.length, "Length mismatch: iDatas and isDiscounts");
+        require(iDatasArray.length == sealedKeysArray.length, "Length mismatch: iDatas and sealedKeys");
+        require(iDatasArray.length > 0, "Empty arrays");
+        require(!paused(), "Contract is paused");
+
+        AgentMarketStorage storage $ = _getMarketStorage();
+
+        for (uint256 i = 0; i < tos.length; i++) {
+            uint256 requiredFee = isDiscounts[i] ? $.discountMintFee : $.mintFee;
+            require($.balances[tos[i]] >= requiredFee, "Insufficient balance for mint fee");
+            require(tos[i] != address(0), "Invalid recipient");
+
+            $.balances[tos[i]] -= requiredFee;
+            $.feeBalances[address(0)] += requiredFee;
+            uint256 tokenId = AgentNFT($.agentNFT).mintWithRole(iDatasArray[i], tos[i], sealedKeysArray[i]);
+            emit PaidMinted(tokenId, msg.sender, tos[i], requiredFee);
+        }
     }
 
     function paidMint(address to, string memory uri, address creator, bool isDiscount) external onlyRole(MINTER_ROLE) {
@@ -493,11 +519,12 @@ contract AgentMarket is
         emit PaidMinted(tokenId, creator, to, requiredFee);
     }
 
-    function mint(
+    function paidMint(
         IntelligentData[] calldata iDatas,
         address to,
         address creator,
-        bool isDiscount
+        bool isDiscount,
+        bytes[] memory sealedKeys
     ) external onlyRole(MINTER_ROLE) {
         AgentMarketStorage storage $ = _getMarketStorage();
         uint256 requiredFee = isDiscount ? $.discountMintFee : $.mintFee;
@@ -506,7 +533,7 @@ contract AgentMarket is
         require(!paused(), "Contract is paused");
         $.balances[to] -= requiredFee;
         $.feeBalances[address(0)] += requiredFee;
-        uint256 tokenId = AgentNFT($.agentNFT).mintWithRole(iDatas, to, creator);
+        uint256 tokenId = AgentNFT($.agentNFT).mintWithRole(iDatas, to, creator, sealedKeys);
         emit PaidMinted(tokenId, creator, to, requiredFee);
     }
 

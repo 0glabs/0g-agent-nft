@@ -171,7 +171,11 @@ contract ERC7857Upgradeable is IERC7857, ERC721Upgradeable {
     /**
      * @notice Empty by default, can be overridden in child contracts.
      */
-    function _updateData(uint256 tokenId, IntelligentData[] memory newDatas) internal virtual {}
+    function _updateData(
+        uint256 tokenId,
+        IntelligentData[] memory newDatas,
+        bytes[] memory sealedKeys
+    ) internal virtual {}
 
     function intelligentDatasOf(uint256 tokenId) public view virtual returns (IntelligentData[] memory) {
         if (_ownerOf(tokenId) == address(0)) {

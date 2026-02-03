@@ -5,7 +5,11 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 
 import {ERC7857Upgradeable} from "../ERC7857Upgradeable.sol";
 import {IntelligentData} from "../interfaces/IERC7857Metadata.sol";
-import {IERC7857DataVerifier, TransferValidityProof, TransferValidityProofOutput} from "../interfaces/IERC7857DataVerifier.sol";
+import {
+    IERC7857DataVerifier,
+    TransferValidityProof,
+    TransferValidityProofOutput
+} from "../interfaces/IERC7857DataVerifier.sol";
 
 contract ERC7857IDataStorageUpgradeable is ERC7857Upgradeable {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -35,7 +39,11 @@ contract ERC7857IDataStorageUpgradeable is ERC7857Upgradeable {
         return $.iDatas[tokenId].length;
     }
 
-    function _updateData(uint256 tokenId, IntelligentData[] memory newDatas) internal virtual override {
+    function _updateData(
+        uint256 tokenId,
+        IntelligentData[] memory newDatas,
+        bytes[] memory sealedKeys
+    ) internal virtual override {
         ERC7857IDataStorageStorage storage $ = _getERC7857IDataStorageStorage();
 
         IntelligentData[] memory oldDatas = new IntelligentData[]($.iDatas[tokenId].length);
@@ -47,7 +55,8 @@ contract ERC7857IDataStorageUpgradeable is ERC7857Upgradeable {
         for (uint i = 0; i < newDatas.length; i++) {
             $.iDatas[tokenId].push(newDatas[i]);
         }
-
+        address owner = _ownerOf(tokenId);
         emit Updated(tokenId, oldDatas, newDatas);
+        emit PublishedSealedKey(owner, tokenId, sealedKeys);
     }
 }
