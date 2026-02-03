@@ -16,11 +16,16 @@ abstract contract BaseVerifier is IERC7857DataVerifier {
         proofTimestamps[proofNonce] = block.timestamp;
     }
 
+    /// @notice Get the maximum proof age from implementation
+    /// @return The maximum proof age in seconds
+    function _getMaxProofAge() internal view virtual returns (uint256);
+
     // clean expired proof records (save gas)
     function cleanExpiredProofs(bytes32[] calldata proofNonces) external {
+        uint256 maxAge = _getMaxProofAge();
         for (uint256 i = 0; i < proofNonces.length; i++) {
             bytes32 nonce = proofNonces[i];
-            if (usedProofs[nonce] && block.timestamp > proofTimestamps[nonce] + 7 days) {
+            if (usedProofs[nonce] && block.timestamp > proofTimestamps[nonce] + maxAge) {
                 delete usedProofs[nonce];
                 delete proofTimestamps[nonce];
             }

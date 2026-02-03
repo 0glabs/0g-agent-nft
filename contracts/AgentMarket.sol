@@ -222,7 +222,7 @@ contract AgentMarket is
     /// @notice Withdraw partner fees
     /// @dev Partners can withdraw their own fees
     /// @param currency The currency to withdraw (address(0) for native token)
-    function withdrawPartnerFees(address currency) external nonReentrant {
+    function withdrawPartnerFees(address currency) external nonReentrant whenNotPaused {
         AgentMarketStorage storage $ = _getMarketStorage();
         uint256 amount = $.partnerFeeBalances[msg.sender][currency];
         require(amount > 0, "No fees to withdraw");
@@ -247,6 +247,10 @@ contract AgentMarket is
         Offer calldata offer,
         TransferValidityProof[] calldata proofs
     ) external payable override nonReentrant whenNotPaused {
+        // Prevent ETH from being stuck in zero-price orders
+        if (offer.offerPrice == 0) {
+            require(msg.value == 0, "ETH not accepted for free orders");
+        }
         // 1. resolve and validate NFT contract
         address nftContract = _resolveAndValidateNFT(order.nftContract);
         require(nftContract == _resolveAndValidateNFT(offer.nftContract), "NFT contract mismatch");
@@ -267,7 +271,7 @@ contract AgentMarket is
             AgentNFT(nftContract).iTransferFrom(seller, buyer, order.tokenId, proofs);
         } else {
             // Standard transferFrom (IERC721)
-            IERC721(nftContract).transferFrom(seller, buyer, order.tokenId);
+            IERC721(nftContract).safeTransferFrom(seller, buyer, order.tokenId);
         }
 
         // 4. transfer erc20 token or 0G
@@ -455,16 +459,29 @@ contract AgentMarket is
 
         // native token
         if (currency == address(0)) {
-            require($.balances[buyer] >= totalAmount, "Insufficient balance");
-            // Update state before external calls (CEI pattern)
-            $.balances[buyer] -= totalAmount;
-            $.feeBalances[currency] += platformFee;
-            if (partnerFee > 0) {
-                $.partnerFeeBalances[creator][currency] += partnerFee;
+            if (msg.value > 0) {
+                // Payment method 1: Direct payment via msg.value (for regular users)
+                require(msg.value >= totalAmount, "Insufficient payment");
+                $.feeBalances[currency] += platformFee;
+                if (partnerFee > 0) {
+                    $.partnerFeeBalances[creator][currency] += partnerFee;
+                }
+                _safeTransferNative(seller, sellerAmount);
+                // Refund excess payment
+                _refundExcess(totalAmount);
+            } else {
+                // Payment method 2: Balance payment via deposit system (for intermediaries)
+                require($.balances[buyer] >= totalAmount, "Insufficient balance");
+                $.balances[buyer] -= totalAmount;
+                $.feeBalances[currency] += platformFee;
+                if (partnerFee > 0) {
+                    $.partnerFeeBalances[creator][currency] += partnerFee;
+                }
+                _safeTransferNative(seller, sellerAmount);
             }
-            _safeTransferNative(seller, sellerAmount);
         } else {
             // ERC20 token
+            require(msg.value == 0, "ETH not accepted for ERC20 payments");
             IERC20 token = IERC20(currency);
             token.safeTransferFrom(buyer, seller, sellerAmount);
             token.safeTransferFrom(buyer, address(this), totalFee);
@@ -489,6 +506,16 @@ contract AgentMarket is
 
         (bool success, ) = payable(to).call{value: amount}("");
         require(success, "Native token transfer failed");
+    }
+
+    /// @notice Internal helper to refund excess payment
+    /// @param requiredAmount The required payment amount
+    function _refundExcess(uint256 requiredAmount) internal {
+        if (msg.value > requiredAmount) {
+            uint256 excess = msg.value - requiredAmount;
+            (bool success, ) = payable(msg.sender).call{value: excess}("");
+            require(success, "Refund failed");
+        }
     }
 
     event MintFeeUpdated(uint256 mintFee);
@@ -532,6 +559,32 @@ contract AgentMarket is
         emit PaidMinted(tokenId, msg.sender, to, requiredFee);
     }
 
+    function batchPaidMint(
+        IntelligentData[][] calldata iDatasArray,
+        address[] calldata tos,
+        bool[] calldata isDiscounts,
+        bytes[][] memory sealedKeysArray
+    ) external onlyRole(MINTER_ROLE) {
+        require(iDatasArray.length == tos.length, "Length mismatch: iDatas and tos");
+        require(iDatasArray.length == isDiscounts.length, "Length mismatch: iDatas and isDiscounts");
+        require(iDatasArray.length == sealedKeysArray.length, "Length mismatch: iDatas and sealedKeys");
+        require(iDatasArray.length > 0, "Empty arrays");
+        require(!paused(), "Contract is paused");
+
+        AgentMarketStorage storage $ = _getMarketStorage();
+
+        for (uint256 i = 0; i < tos.length; i++) {
+            uint256 requiredFee = isDiscounts[i] ? $.discountMintFee : $.mintFee;
+            require($.balances[tos[i]] >= requiredFee, "Insufficient balance for mint fee");
+            require(tos[i] != address(0), "Invalid recipient");
+
+            $.balances[tos[i]] -= requiredFee;
+            $.feeBalances[address(0)] += requiredFee;
+            uint256 tokenId = AgentNFT($.agentNFT).mintWithRole(iDatasArray[i], tos[i], sealedKeysArray[i]);
+            emit PaidMinted(tokenId, msg.sender, tos[i], requiredFee);
+        }
+    }
+
     function paidMint(address to, string memory uri, address creator, bool isDiscount) external onlyRole(MINTER_ROLE) {
         AgentMarketStorage storage $ = _getMarketStorage();
         uint256 requiredFee = isDiscount ? $.discountMintFee : $.mintFee;
@@ -544,7 +597,7 @@ contract AgentMarket is
         emit PaidMinted(tokenId, creator, to, requiredFee);
     }
 
-    function mint(
+    function paidMint(
         IntelligentData[] calldata iDatas,
         address to,
         address creator,

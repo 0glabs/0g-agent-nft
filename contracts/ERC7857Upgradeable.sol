@@ -135,7 +135,7 @@ contract ERC7857Upgradeable is IERC7857, ERC721Upgradeable {
     function _transfer(address from, address to, uint256 tokenId, TransferValidityProof[] calldata proofs) internal {
         bytes[] memory sealedKeys = _proofCheck(from, to, tokenId, proofs);
 
-        transferFrom(from, to, tokenId);
+        safeTransferFrom(from, to, tokenId);
 
         emit PublishedSealedKey(to, tokenId, sealedKeys);
     }

@@ -33,6 +33,21 @@ contract AgentNFT is
     /// @param creator The creator address
     event CreatorSet(uint256 indexed tokenId, address indexed creator);
 
+    /// @notice The event emitted when the base URI is updated
+    /// @param oldBaseURI The old base URI
+    /// @param newBaseURI The new base URI
+    event BaseURIUpdated(string oldBaseURI, string newBaseURI);
+
+    /// @notice The event emitted when a token URI is updated
+    /// @param tokenId The token ID
+    /// @param newURI The new token URI
+    event TokenURIUpdated(uint256 indexed tokenId, string newURI);
+
+    /// @notice The event emitted when the verifier is updated
+    /// @param oldVerifier The old verifier address
+    /// @param newVerifier The new verifier address
+    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+
     /// @custom:storage-location erc7201:agent.storage.AgentNFT
     struct AgentNFTStorage {
         // Contract metadata
@@ -135,7 +150,9 @@ contract AgentNFT is
     // Operator functions
     function updateVerifier(address newVerifier) public virtual onlyRole(OPERATOR_ROLE) {
         require(newVerifier != address(0), "Zero address");
+        address oldVerifier = address(verifier());
         _setVerifier(newVerifier);
+        emit VerifierUpdated(oldVerifier, newVerifier);
     }
 
     function update(
@@ -153,7 +170,7 @@ contract AgentNFT is
         IntelligentData[] calldata iDatas,
         address to,
         bytes[] memory sealedKeys
-    ) public payable virtual returns (uint256 tokenId) {
+    ) public payable virtual whenNotPaused returns (uint256 tokenId) {
         require(to != address(0), "Zero address");
         require(iDatas.length > 0, "Empty data array");
 
@@ -248,12 +265,12 @@ contract AgentNFT is
     }
 
     /// @notice Mint a standard NFT (for migration compatibility)
-    function mint(address to) public payable virtual returns (uint256 tokenId) {
+    function mint(address to) public payable virtual whenNotPaused returns (uint256 tokenId) {
         return mint(to, "");
     }
 
     /// @notice Mint a standard NFT with custom URI (for migration compatibility)
-    function mint(address to, string memory uri) public payable virtual returns (uint256 tokenId) {
+    function mint(address to, string memory uri) public payable virtual whenNotPaused returns (uint256 tokenId) {
         require(to != address(0), "Zero address");
 
         AgentNFTStorage storage $ = _getAgentStorage();
@@ -265,6 +282,9 @@ contract AgentNFT is
         if (bytes(uri).length > 0) {
             $.customURIs[tokenId] = uri;
         }
+
+        // Refund excess payment
+        _refundExcess($.mintFee);
     }
 
     function storageInfo() public view virtual returns (string memory) {
@@ -289,6 +309,16 @@ contract AgentNFT is
     }
 
     event AuthorizedUsersCleared(address indexed owner, uint256 indexed tokenId);
+
+    /// @notice Internal helper to refund excess payment
+    /// @param requiredAmount The required payment amount
+    function _refundExcess(uint256 requiredAmount) internal {
+        if (msg.value > requiredAmount) {
+            uint256 excess = msg.value - requiredAmount;
+            (bool success, ) = payable(msg.sender).call{value: excess}("");
+            require(success, "Refund failed");
+        }
+    }
 
     // Mint fee management
     event MintFeeUpdated(uint256 oldFee, uint256 newFee);
@@ -343,12 +373,16 @@ contract AgentNFT is
     }
 
     function setBaseURI(string memory newBaseURI) external onlyRole(OPERATOR_ROLE) {
-        _getAgentStorage().baseURI = newBaseURI;
+        AgentNFTStorage storage $ = _getAgentStorage();
+        string memory oldBaseURI = $.baseURI;
+        $.baseURI = newBaseURI;
+        emit BaseURIUpdated(oldBaseURI, newBaseURI);
     }
 
     function setTokenURI(uint256 tokenId, string memory newURI) external {
         require(_ownerOf(tokenId) == msg.sender, "Not owner");
         _getAgentStorage().customURIs[tokenId] = newURI;
+        emit TokenURIUpdated(tokenId, newURI);
     }
 
     /// @notice Get the creator of a token

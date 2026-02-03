@@ -247,4 +247,10 @@ contract Verifier is
     function maxProofAge() public view returns (uint256) {
         return _getVerifierStorage().maxProofAge;
     }
+
+    /// @notice Internal implementation of _getMaxProofAge for BaseVerifier
+    /// @return The maximum proof age in seconds
+    function _getMaxProofAge() internal view override returns (uint256) {
+        return _getVerifierStorage().maxProofAge;
+    }
 }
