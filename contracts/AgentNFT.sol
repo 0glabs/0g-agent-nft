@@ -180,6 +180,7 @@ contract AgentNFT is
         tokenId = _incrementTokenId();
         _safeMint(to, tokenId);
         _updateData(tokenId, iDatas, sealedKeys);
+        _refundExcess($.mintFee);
     }
 
     /// @notice Mint iNFT with MINTER_ROLE (for AgentMarket contract)

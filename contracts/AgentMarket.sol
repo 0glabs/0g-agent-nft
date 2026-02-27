@@ -268,7 +268,7 @@ contract AgentMarket is
 
         // 3. transfer iNFT
         if (offer.needProof) {
-            AgentNFT(nftContract).iTransferFrom(seller, buyer, order.tokenId, proofs);
+            IERC7857(nftContract).iTransferFrom(seller, buyer, order.tokenId, proofs);
         } else {
             // Standard transferFrom (IERC721)
             IERC721(nftContract).safeTransferFrom(seller, buyer, order.tokenId);
