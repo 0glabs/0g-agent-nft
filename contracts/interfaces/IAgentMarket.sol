@@ -13,6 +13,8 @@ struct Order {
     bytes signature;
     // if receiver is set, the order is a directed order, can only be fulfilled by the specified receiver
     address receiver;
+    // NFT contract address. address(0) means default agentNFT for backward compatibility
+    address nftContract;
 }
 
 struct Offer {
@@ -22,6 +24,8 @@ struct Offer {
     bytes32 nonce;
     bool needProof;
     bytes signature;
+    // NFT contract address. Must match Order's nftContract
+    address nftContract;
 }
 
 interface IAgentMarket {

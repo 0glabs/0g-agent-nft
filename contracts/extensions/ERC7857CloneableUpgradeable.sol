@@ -43,10 +43,9 @@ contract ERC7857CloneableUpgradeable is IERC7857Cloneable, ERC7857Upgradeable {
         uint256 newTokenId = _incrementTokenId();
         _safeMint(to, newTokenId);
         IntelligentData[] memory datas = _intelligentDatasOf(tokenId);
-        _updateData(newTokenId, datas);
+        _updateData(newTokenId, datas, sealedKeys);
 
         emit Cloned(tokenId, newTokenId, from, to);
-        emit PublishedSealedKey(to, newTokenId, sealedKeys);
 
         return newTokenId;
     }
