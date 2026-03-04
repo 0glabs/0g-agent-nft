@@ -16,6 +16,11 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./AgentNFT.sol";
 import "./Utils.sol";
 
+/// @dev Minimal interface for NFT contracts that support creator tracking
+interface ICreatorOf {
+    function creatorOf(uint256 tokenId) external view returns (address);
+}
+
 contract AgentMarket is
     Initializable,
     AccessControlUpgradeable,
@@ -31,6 +36,7 @@ contract AgentMarket is
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     uint256 public constant MAX_FEE_RATE = 1000;
+    uint256 public constant MAX_BATCH_MINT_SIZE = 100;
     string public constant VERSION = "1.0.0";
 
     /// @custom:storage-location erc7201:agent.storage.AgentMarket
@@ -253,7 +259,8 @@ contract AgentMarket is
         }
         // 1. resolve and validate NFT contract
         address nftContract = _resolveAndValidateNFT(order.nftContract);
-        require(nftContract == _resolveAndValidateNFT(offer.nftContract), "NFT contract mismatch");
+        address offerNftContract = _resolveAndValidateNFT(offer.nftContract);
+        require(nftContract == offerNftContract, "NFT contract mismatch");
 
         // 2. verify order and offer:
         // 2.1 verify signature
@@ -268,6 +275,14 @@ contract AgentMarket is
 
         // 3. transfer iNFT
         if (offer.needProof) {
+            // For external NFTs, verify IERC7857 support before calling iTransferFrom
+            if (nftContract != $.agentNFT) {
+                try IERC165(nftContract).supportsInterface(type(IERC7857).interfaceId) returns (bool supported) {
+                    require(supported, "External NFT does not support IERC7857");
+                } catch {
+                    revert("External NFT does not support ERC165/IERC7857");
+                }
+            }
             IERC7857(nftContract).iTransferFrom(seller, buyer, order.tokenId, proofs);
         } else {
             // Standard transferFrom (IERC721)
@@ -422,7 +437,7 @@ contract AgentMarket is
     /// @return The creator address (or address(0) if not supported)
     function _getCreator(address nftContract, uint256 tokenId) internal view returns (address) {
         // Try to call creatorOf() if the contract supports it
-        try AgentNFT(nftContract).creatorOf(tokenId) returns (address creator) {
+        try ICreatorOf(nftContract).creatorOf(tokenId) returns (address creator) {
             return creator;
         } catch {
             // If creatorOf() is not supported or reverts, return address(0)
@@ -565,10 +580,11 @@ contract AgentMarket is
         bool[] calldata isDiscounts,
         bytes[][] memory sealedKeysArray
     ) external onlyRole(MINTER_ROLE) {
+        require(iDatasArray.length > 0, "Empty arrays");
+        require(iDatasArray.length <= MAX_BATCH_MINT_SIZE, "Batch size exceeds limit");
         require(iDatasArray.length == tos.length, "Length mismatch: iDatas and tos");
         require(iDatasArray.length == isDiscounts.length, "Length mismatch: iDatas and isDiscounts");
         require(iDatasArray.length == sealedKeysArray.length, "Length mismatch: iDatas and sealedKeys");
-        require(iDatasArray.length > 0, "Empty arrays");
         require(!paused(), "Contract is paused");
 
         AgentMarketStorage storage $ = _getMarketStorage();
